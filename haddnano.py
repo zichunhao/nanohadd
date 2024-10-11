@@ -56,9 +56,23 @@ if goFast:
     of.SetCompressionSettings(fileHandles[0].GetCompressionSettings())
 of.cd()
 
+files_to_skip = set()
+# First pass: identify files to skip
 for e in fileHandles[0].GetListOfKeys():
     name = e.GetName()
-    print("Merging" + str(name))
+    for i, fh in enumerate(fileHandles[1:], 1):
+        if fh.GetName() in files_to_skip:
+            continue
+        try:
+            otherObj = fh.GetListOfKeys().FindObject(name).ReadObj()
+            del otherObj  # Explicitly delete to avoid memory leaks
+        except Exception as e:
+            print(f"Error reading {name} from {fh.GetName()}: {e}")
+            files_to_skip.add(fh.GetName())
+
+for e in fileHandles[0].GetListOfKeys():
+    name = e.GetName()
+    print("Merging " + str(name))
     obj = e.ReadObj()
     cl = ROOT.TClass.GetClass(e.GetClassName())
     inputs = ROOT.TList()
@@ -67,11 +81,10 @@ for e in fileHandles[0].GetListOfKeys():
         obj = obj.CloneTree(-1, "fast" if goFast else "")
         branchNames = set([x.GetName() for x in obj.GetListOfBranches()])
     for fh in fileHandles[1:]:
-        try:
-            otherObj = fh.GetListOfKeys().FindObject(name).ReadObj()
-        except AttributeError as e:
-            filename = fh.GetName()
-            raise AttributeError(f"Error reading {name} from {filename}: {e}")
+        if fh.GetName() in files_to_skip:
+            print(f"Skipping file {fh.GetName()} due to previous errors")
+            continue
+        otherObj = fh.GetListOfKeys().FindObject(name).ReadObj()
         inputs.Add(otherObj)
         if isTree and obj.GetName() == "Events":
             otherObj.SetAutoFlush(0)
@@ -141,3 +154,4 @@ for e in fileHandles[0].GetListOfKeys():
     else:
         print("Cannot handle " + str(obj.IsA().GetName()))
 
+print(f"Files that were skipped: {files_to_skip}")
